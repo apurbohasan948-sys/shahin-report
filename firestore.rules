@@ -12,15 +12,12 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isEmailVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
-    }
-
     function isAdmin() {
-      return isEmailVerified() && (
-        request.auth.token.email.toLowerCase() == "apurbohasan948@gmail.com" ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.token.email.toLowerCase()))
-      );
+      return isSignedIn() && 
+        request.auth.token.email != null && (
+          request.auth.token.email.toLowerCase() == "apurbohasan948@gmail.com" ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.token.email.toLowerCase()))
+        );
     }
 
     function isValidId(id) {
@@ -29,20 +26,20 @@ service cloud.firestore {
 
     // Admins Collection Rules
     match /admins/{email} {
-      allow read: if isEmailVerified();
+      allow read: if isSignedIn();
       allow write: if isAdmin() && isValidId(email);
     }
 
     // Reports Collection Rules
     match /reports/{reportId} {
-      allow read: if isEmailVerified();
+      allow read: if isSignedIn();
       
-      allow create: if isEmailVerified() && isValidId(reportId) && (
+      allow create: if isSignedIn() && isValidId(reportId) && (
         isAdmin() || 
         (request.resource.data.patient.agency == "SHAHIN/AF-1")
       );
 
-      allow update: if isEmailVerified() && isValidId(reportId) && (
+      allow update: if isSignedIn() && isValidId(reportId) && (
         isAdmin() ||
         (
           resource.data.patient.agency == "SHAHIN/AF-1" &&

@@ -29,10 +29,18 @@ import SealAndSignatures from "./components/SealAndSignatures";
 import ReportEditorControl from "./components/ReportEditorControl";
 
 // Firebase imports
-import { auth, db, googleProvider, OperationType, handleFirestoreError } from "./firebase";
 import { 
-  signInWithPopup, 
-  signOut, 
+  auth, 
+  db, 
+  OperationType, 
+  handleFirestoreError,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInAnonymously,
+  signOut,
+  updateProfile
+} from "./firebase";
+import { 
   onAuthStateChanged, 
   User as FirebaseUser 
 } from "firebase/auth";
@@ -76,6 +84,14 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [adminsList, setAdminsList] = useState<string[]>([]);
   const [newAdminEmail, setNewAdminEmail] = useState<string>("");
+
+  // Number/Email and Password Authentication Form States
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [loginPhoneNumber, setLoginPhoneNumber] = useState<string>("");
+  const [loginPassword, setLoginPassword] = useState<string>("");
+  const [loginName, setLoginName] = useState<string>("");
+  const [loginErrorMessage, setLoginErrorMessage] = useState<string | null>(null);
+  const [isAuthenticating, setIsAuthenticating] = useState<boolean>(false);
 
   const [reports, setReports] = useState<MedicalReport[]>([]);
   const [selectedReportId, setSelectedReportId] = useState<string>("");
@@ -221,24 +237,119 @@ export default function App() {
     };
   }, []);
 
-  // Google Sign-In with popup
-  const handleGoogleLogin = async () => {
+  // Helper to normalize entered mobile numbers or usernames to valid email formats for Firebase Authentication
+  const normalizeToEmail = (idStr: string): string => {
+    const clean = idStr.trim().toLowerCase();
+    if (clean.includes("@")) {
+      return clean;
+    }
+    // Convert e.g., '01712345678' to '01712345678@aljabbar.com'
+    const alphanumeric = clean.replace(/[^a-z0-9]/g, "");
+    if (!alphanumeric) return "";
+    return `${alphanumeric}@aljabbar.com`;
+  };
+
+  // 1. Password-based Login Handler
+  const handlePhonePasswordLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setLoginErrorMessage(null);
+
+    const email = normalizeToEmail(loginPhoneNumber);
+    if (!email) {
+      setLoginErrorMessage("অনুগ্রহ করে নাম্বার অথবা জিমেইল এড্রেস সঠিক ভাবে দিন।");
+      return;
+    }
+    if (loginPassword.length < 6) {
+      setLoginErrorMessage("পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।");
+      return;
+    }
+
+    setIsAuthenticating(true);
     try {
-      await signInWithPopup(auth, googleProvider);
-      triggerAlert("সাফল্যের সাথে গুগল অ্যাকাউন্ট দিয়ে লগইন করা হয়েছে!", "success");
+      await signInWithEmailAndPassword(auth, email, loginPassword);
+      triggerAlert("সাফল্যের সাথে আইডি দিয়ে লগইন করা হয়েছে!", "success");
+      // Clean inputs
+      setLoginPhoneNumber("");
+      setLoginPassword("");
     } catch (err: any) {
-      console.error("Authentication popup failure:", err);
-      if (err.code === "auth/popup-closed-by-user") {
-        triggerAlert("লগইন উইন্ডোটি বন্ধ করা হয়েছে। পুনরায় চেষ্টা করুন।", "info");
-      } else {
-        triggerAlert("লগইন করা যায়নি: " + err.message, "info");
+      console.error("Number/Email sign in error:", err);
+      let errorText = "লগইন ব্যর্থ হয়েছে। পাসওয়ার্ড বা ইউজারনেম সঠিক কিনা পরীক্ষা করুন।";
+      if (err.code === "auth/user-not-found" || err.message?.includes("user-not-found")) {
+        errorText = "এই নাম্বার বা ইমেইল দিয়ে কোনো অ্যাকাউন্ট খুঁজে পাওয়া যায়নি। নিবন্ধন করুন।";
+      } else if (err.code === "auth/wrong-password" || err.message?.includes("wrong-password")) {
+        errorText = "ভুল পাসওয়ার্ড দিয়েছেন! দয়া করে সঠিক পাসওয়ার্ড দিয়ে পুনরায় চেষ্টা করুন।";
+      } else if (err.code === "auth/invalid-credential" || err.message?.includes("invalid-credential")) {
+        errorText = "ভুল ক্রেডেনশিয়াল বা ভুল পাসওয়ার্ড! পুনরায় চেক করুন।";
       }
+      setLoginErrorMessage(errorText);
+    } finally {
+      setIsAuthenticating(false);
     }
   };
 
-  // Google Sign-Out
+  // 2. Password-based Registration/Sign Up Handler
+  const handlePhonePasswordRegister = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setLoginErrorMessage(null);
+
+    const email = normalizeToEmail(loginPhoneNumber);
+    if (!email) {
+      setLoginErrorMessage("অনুগ্রহ করে সঠিক নাম্বার বা ইমেইল এড্রেস প্রদান করুন।");
+      return;
+    }
+    if (loginPassword.length < 6) {
+      setLoginErrorMessage("পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।");
+      return;
+    }
+    if (!loginName.trim()) {
+      setLoginErrorMessage("অনুগ্রহ করে আপনার নাম প্রদান করুন।");
+      return;
+    }
+
+    setIsAuthenticating(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, loginPassword);
+      // Update the user details display name
+      if (userCredential.user) {
+        await updateProfile(userCredential.user, {
+          displayName: loginName.trim()
+        });
+      }
+      triggerAlert("সাফল্যের সাথে নতুন অ্যাকাউন্ট নিবন্ধন করা হয়েছে!", "success");
+      // Smooth transitions
+      setAuthMode("login");
+      setLoginName("");
+      setLoginPassword("");
+    } catch (err: any) {
+      console.error("Account creation failure:", err);
+      let errorText = "নিবন্ধন করা যায়নি। পুনরায় চেষ্টা করুন।";
+      if (err.code === "auth/email-already-in-use" || err.code === "auth/credential-already-in-use") {
+        errorText = "এই নাম্বার বা ইমেইল এড্রেস দিয়ে ইতিমধ্যে অ্যাকাউন্ট নিবন্ধন করা আছে।";
+      }
+      setLoginErrorMessage(errorText);
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  // 3. Anonymous Sign In Handler
+  const handleAnonymousLogin = async () => {
+    setLoginErrorMessage(null);
+    setIsAuthenticating(true);
+    try {
+      await signInAnonymously(auth);
+      triggerAlert("বেনামী/অতিথি এজেন্ট হিসেবে সফলভাবে ড্যাশবোর্ডে প্রবেশ করেছেন!", "success");
+    } catch (err: any) {
+      console.error("Anonymous authentication error:", err);
+      setLoginErrorMessage("বেনামী লগইন ব্যর্থ হয়েছে। অনুগ্রহ করে ফায়ারবেস কনসোলে Anonymous Auth এনাবল করুন!");
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  // Sign-Out
   const handleSignOut = async () => {
-    if (window.confirm("Are you sure you want to sign out?")) {
+    if (window.confirm("আপনি কি নিশ্চিত যে আপনি সাইন আউট করতে চান?")) {
       try {
         await signOut(auth);
         triggerAlert("সাইন আউট সম্পন্ন হয়েছে।", "info");
@@ -713,11 +824,11 @@ export default function App() {
   // ==================== B. RE-IDENTIFY OR GUEST LOGIN SCREEN ====================
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-105 flex items-center justify-center p-4 font-sans antialiased text-slate-850">
-        <div className="w-full max-w-md bg-white border border-gray-200 shadow-xl rounded-3xl overflow-hidden p-6 md:p-8 flex flex-col gap-6 text-center">
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans antialiased text-slate-850">
+        <div className="w-full max-w-md bg-white border border-gray-200 shadow-xl rounded-3xl overflow-hidden p-6 md:p-8 flex flex-col gap-5 text-center">
           
           <div className="flex flex-col items-center gap-3">
-            <div className="p-3.5 bg-indigo-50 text-blue-600 rounded-2xl shadow-inner mb-1.5">
+            <div className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl shadow-inner mb-1">
               <Shield className="w-7 h-7" />
             </div>
             <h1 className="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight leading-none">
@@ -728,33 +839,99 @@ export default function App() {
             </p>
           </div>
 
-          <div className="bg-slate-50 border border-gray-100 rounded-2xl p-4.5 text-left text-slate-600 space-y-3 leading-relaxed text-xs">
-            <div className="flex items-start gap-2.5">
-              <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0 mt-1.5" />
-              <span>রিয়েল-টাইম ক্লাউড ফায়ারবেস ব্যাকএন্ডের সাথে সকল ডাটা সরাসরি সুরক্ষিতভাবে সিঙ্ক থাকবে।</span>
+          <div className="flex bg-slate-100 p-1 rounded-xl">
+            <button
+              onClick={() => { setAuthMode("login"); setLoginErrorMessage(null); }}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${authMode === "login" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"}`}
+            >
+              লগইন (Sign In)
+            </button>
+            <button
+              onClick={() => { setAuthMode("register"); setLoginErrorMessage(null); }}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${authMode === "register" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"}`}
+            >
+              নিবন্ধন (Register)
+            </button>
+          </div>
+
+          {loginErrorMessage && (
+            <div className="bg-red-50 border border-red-200 text-red-650 rounded-xl p-3 text-left flex items-start gap-2.5 text-xs font-medium leading-relaxed">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+              <span>{loginErrorMessage}</span>
             </div>
-            <div className="flex items-start gap-2.5">
-              <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0 mt-1.5" />
-              <span><strong>মাস্টার অ্যাকাউন্ট:</strong> <code>apurbohasan948@gmail.com</code> স্বয়ংক্রিয়ভাবে মেইন এডমিন হিসেবে এ্যাক্সেস পাবেন।</span>
+          )}
+
+          <form onSubmit={authMode === "login" ? handlePhonePasswordLogin : handlePhonePasswordRegister} className="space-y-3.5 text-left">
+            {authMode === "register" && (
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-600">আপনার পূর্ণ নাম (Full Name)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="যেমন: ডাঃ রফিকুল ইসলাম"
+                  value={loginName}
+                  onChange={(e) => setLoginName(e.target.value)}
+                  className="w-full text-xs py-2.5 px-3.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all placeholder-gray-400 font-semibold"
+                />
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-600">মোবাইল নাম্বার অথবা জিমেইল (Number / Email)</label>
+              <input
+                type="text"
+                required
+                placeholder="যেমন: 017XXXXXXXX অথবা example@gmail.com"
+                value={loginPhoneNumber}
+                onChange={(e) => setLoginPhoneNumber(e.target.value)}
+                className="w-full text-xs py-2.5 px-3.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all placeholder-gray-400 font-semibold"
+              />
             </div>
-            <div className="flex items-start gap-2.5">
-              <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-1.5" />
-              <span>সহকর্মী অ্যাডমিন যুক্ত করতে লগইন করার পর <strong>Admin Panel</strong> এর ভেতর থেকে জিমেইল এড করে দিন।</span>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-600">পাসওয়ার্ড (Password)</label>
+              <input
+                type="password"
+                required
+                placeholder="কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড দিন"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                className="w-full text-xs py-2.5 px-3.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all placeholder-gray-400 font-semibold"
+              />
             </div>
+
+            <button
+              type="submit"
+              disabled={isAuthenticating}
+              className="w-full flex items-center justify-center gap-2 py-3 px-5 text-white font-extrabold text-xs rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 cursor-pointer shadow-md transition-all mt-4.5"
+            >
+              {isAuthenticating ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : authMode === "login" ? (
+                "আইডি দিয়ে প্রবেশ করুন"
+              ) : (
+                "নতুন অ্যাকাউন্ট তৈরি করুন"
+              )}
+            </button>
+          </form>
+
+          <div className="relative flex py-1.5 items-center">
+            <div className="flex-grow border-t border-gray-200"></div>
+            <span className="flex-shrink mx-4 text-gray-400 text-[10px] font-bold uppercase tracking-wider">অথবা (OR)</span>
+            <div className="flex-grow border-t border-gray-200"></div>
           </div>
 
           <button
-            onClick={handleGoogleLogin}
-            className="w-full flex items-center justify-center gap-3 py-3 px-5 text-white font-extrabold text-sm rounded-xl bg-slate-900 hover:bg-slate-800 active:bg-slate-950 shadow-md cursor-pointer transition-all"
+            type="button"
+            onClick={handleAnonymousLogin}
+            disabled={isAuthenticating}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-5 text-indigo-700 font-extrabold text-xs rounded-xl bg-indigo-50 hover:bg-indigo-100/80 active:bg-indigo-100 cursor-pointer transition-all"
           >
-            <svg className="w-4 h-4 fill-white flex-shrink-0" viewBox="0 0 16 16">
-              <path d="M15.545 6.558a9.42 9.42 0 0 1 .139 1.626c0 2.434-.87 4.492-2.384 5.885h.002C11.978 15.292 10.158 16 8 16A8 8 0 1 1 8 0c2.198 0 4.036.811 5.436 2.146l-2.194 2.193C10.275 3.324 9.248 3 8 3c-2.76 0-5 2.24-5 5s2.24 5 5 5c3.195 0 4.383-2.296 4.602-3.442H8V6.558h7.545z" />
-            </svg>
-            গুগল অ্যাকাউন্ট দিয়ে লগইন করুন
+            অতিথি/বেনামী এজেন্ট হিসেবে প্রবেশ করুন (Anonymous Guest)
           </button>
 
           <p className="text-[10px] text-gray-400 font-medium">
-            Authorized Personnel Access Only. Protected by Firebase OAuth 2.0
+            Authorized Medical Staff Portal. Protected by Secure Firebase Auth Suite.
           </p>
 
         </div>
