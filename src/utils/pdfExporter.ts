@@ -25,10 +25,12 @@ export async function downloadReportAsPDF(
   // Buffer original styles to draw seamlessly
   const originalBoxShadow = element.style.boxShadow;
   const originalBorder = element.style.border;
+  const originalFilter = element.style.filter;
   
   // Set clean layout for screenshot
   element.style.boxShadow = "none";
   element.style.border = "none";
+  element.style.filter = "none";
 
   try {
     // Render HTML component onto visual Canvas
@@ -69,6 +71,7 @@ export async function downloadReportAsPDF(
     // Restore visual layout styles in view
     element.style.boxShadow = originalBoxShadow;
     element.style.border = originalBorder;
+    element.style.filter = originalFilter;
     if (onProgress) onProgress(false);
   }
 }

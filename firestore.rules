@@ -30,6 +30,12 @@ service cloud.firestore {
       allow write: if isAdmin() && isValidId(email);
     }
 
+    // Global Config Configuration Rules
+    match /global_config/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidId(docId);
+    }
+
     // Reports Collection Rules
     match /reports/{reportId} {
       allow read: if isSignedIn();

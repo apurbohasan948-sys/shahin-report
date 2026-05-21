@@ -124,6 +124,50 @@ export default function App() {
     }, 4500);
   };
 
+  // Helper to update global config in Firestore
+  const updateGlobalAssetFirestore = async (key: string, value: string) => {
+    try {
+      if (auth.currentUser) {
+        await setDoc(doc(db, "global_config", "assets"), {
+          [key]: value
+        }, { merge: true });
+      }
+    } catch (err: any) {
+      console.error("Failed to update global config in Firestore:", err);
+    }
+  };
+
+  // Real-time listener for global configuration assets from Firestore
+  useEffect(() => {
+    const unsubscribeConfig = onSnapshot(doc(db, "global_config", "assets"), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.logo !== undefined) {
+          setGlobalHospitalLogo(data.logo);
+          safeStorage.setItem("aljabbar_global_logo", data.logo);
+        }
+        if (data.seal !== undefined) {
+          setGlobalHospitalSeal(data.seal);
+          safeStorage.setItem("aljabbar_global_seal", data.seal);
+        }
+        if (data.checkedSignature !== undefined) {
+          setGlobalCheckedSignature(data.checkedSignature);
+          safeStorage.setItem("aljabbar_global_checked_signature", data.checkedSignature);
+        }
+        if (data.doctorSignature !== undefined) {
+          setGlobalDoctorSignature(data.doctorSignature);
+          safeStorage.setItem("aljabbar_global_doctor_signature", data.doctorSignature);
+        }
+      }
+    }, (err) => {
+      console.warn("Firestore config read permission issue (using cache):", err);
+    });
+
+    return () => {
+      unsubscribeConfig();
+    };
+  }, []);
+
   // 1. Core Authentication & Realtime Firestore Database Synchronization Engine
   useEffect(() => {
     // Detect Agent view via URL query parameter on mounting
@@ -520,48 +564,56 @@ export default function App() {
   const handleUpdateGlobalLogo = (url: string) => {
     setGlobalHospitalLogo(url);
     safeStorage.setItem("aljabbar_global_logo", url);
+    updateGlobalAssetFirestore("logo", url);
     triggerAlert("হসপিটালের লোগো সংরক্ষিত হয়েছে!", "success");
   };
 
   const handleUpdateGlobalSeal = (url: string) => {
     setGlobalHospitalSeal(url);
     safeStorage.setItem("aljabbar_global_seal", url);
+    updateGlobalAssetFirestore("seal", url);
     triggerAlert("হসপিটালের সিল সংরক্ষিত হয়েছে!", "success");
   };
 
   const handleUpdateGlobalCheckedSignature = (url: string) => {
     setGlobalCheckedSignature(url);
     safeStorage.setItem("aljabbar_global_checked_signature", url);
+    updateGlobalAssetFirestore("checkedSignature", url);
     triggerAlert("চেকড বাই সিগনেচার সংরক্ষিত হয়েছে!", "success");
   };
 
   const handleUpdateGlobalDoctorSignature = (url: string) => {
     setGlobalDoctorSignature(url);
     safeStorage.setItem("aljabbar_global_doctor_signature", url);
+    updateGlobalAssetFirestore("doctorSignature", url);
     triggerAlert("ডক্টরের সিগনেচার সংরক্ষিত হয়েছে!", "success");
   };
 
   const handleResetGlobalLogo = () => {
     setGlobalHospitalLogo("");
     safeStorage.setItem("aljabbar_global_logo", "");
+    updateGlobalAssetFirestore("logo", "");
     triggerAlert("লোগো ডিফল্ট ভেক্টরে রিস্টোর করা হয়েছে।", "info");
   };
 
   const handleResetGlobalSeal = () => {
     setGlobalHospitalSeal("");
     safeStorage.setItem("aljabbar_global_seal", "");
+    updateGlobalAssetFirestore("seal", "");
     triggerAlert("সিল ডিফল্ট ভেক্টরে রিস্টোর করা হয়েছে।", "info");
   };
 
   const handleResetGlobalCheckedSignature = () => {
     setGlobalCheckedSignature("");
     safeStorage.setItem("aljabbar_global_checked_signature", "");
+    updateGlobalAssetFirestore("checkedSignature", "");
     triggerAlert("চেকড সিগনেচার ডিফল্ট ভেক্টরে রিস্টোর করা হয়েছে।", "info");
   };
 
   const handleResetGlobalDoctorSignature = () => {
     setGlobalDoctorSignature("");
     safeStorage.setItem("aljabbar_global_doctor_signature", "");
+    updateGlobalAssetFirestore("doctorSignature", "");
     triggerAlert("ডক্টর সিগনেচার ডিফল্ট ভেক্টরে রিস্টোর করা হয়েছে।", "info");
   };
 
@@ -811,6 +863,9 @@ export default function App() {
     };
 
     const handleBlur = () => {
+      if (document.body.getAttribute("data-is-generating-pdf") === "true") {
+        return;
+      }
       const sheet = document.getElementById("medical-report-sheet");
       if (sheet) {
         sheet.style.filter = "blur(12px)";
@@ -851,6 +906,7 @@ export default function App() {
     const filename = `AL_JABBAR_${safeName}_${safeReg}.pdf`.toUpperCase();
 
     setIsGeneratingPdf(true);
+    document.body.setAttribute("data-is-generating-pdf", "true");
 
     setTimeout(async () => {
       try {
@@ -863,6 +919,7 @@ export default function App() {
         window.print();
       } finally {
         setIsGeneratingPdf(false);
+        document.body.removeAttribute("data-is-generating-pdf");
 
         // Instantly switch back status for Agent role for security tokens
         if (isAgentRole) {
@@ -995,20 +1052,24 @@ export default function App() {
             </button>
           </form>
 
-          <div className="relative flex py-1.5 items-center">
-            <div className="flex-grow border-t border-gray-200"></div>
-            <span className="flex-shrink mx-4 text-gray-400 text-[10px] font-bold uppercase tracking-wider">অথবা (OR)</span>
-            <div className="flex-grow border-t border-gray-200"></div>
-          </div>
+          {isUrlLockedAgent && (
+            <>
+              <div className="relative flex py-1.5 items-center">
+                <div className="flex-grow border-t border-gray-200"></div>
+                <span className="flex-shrink mx-4 text-gray-400 text-[10px] font-bold uppercase tracking-wider">অথবা (OR)</span>
+                <div className="flex-grow border-t border-gray-200"></div>
+              </div>
 
-          <button
-            type="button"
-            onClick={handleAnonymousLogin}
-            disabled={isAuthenticating}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-5 text-indigo-700 font-extrabold text-xs rounded-xl bg-indigo-50 hover:bg-indigo-100/80 active:bg-indigo-100 cursor-pointer transition-all"
-          >
-            অতিথি/বেনামী এজেন্ট হিসেবে প্রবেশ করুন (Anonymous Guest)
-          </button>
+              <button
+                type="button"
+                onClick={handleAnonymousLogin}
+                disabled={isAuthenticating}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-5 text-indigo-700 font-extrabold text-xs rounded-xl bg-indigo-50 hover:bg-indigo-100/80 active:bg-indigo-100 cursor-pointer transition-all"
+              >
+                অতিথি/বেনামী এজেন্ট হিসেবে প্রবেশ করুন (Anonymous Guest)
+              </button>
+            </>
+          )}
 
           <p className="text-[10px] text-gray-400 font-medium">
             Authorized Medical Staff Portal. Protected by Secure Firebase Auth Suite.
