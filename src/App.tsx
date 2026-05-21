@@ -236,18 +236,37 @@ export default function App() {
             fetchedList.push({ ...doc.data() } as MedicalReport);
           });
           
-          if (fetchedList.length > 0) {
-            setReports(fetchedList);
+          let visibleList = fetchedList;
+          if (!isUserAdmin) {
+            visibleList = fetchedList.filter(r => {
+              const creator = (r.createdBy || "").toLowerCase().trim();
+              const reqBy = (r.requestedBy || "").toLowerCase().trim();
+              
+              const isCreatorEmail = normalizedEmail && creator === normalizedEmail;
+              const isCreatorUid = user.uid && creator === user.uid.toLowerCase().trim();
+              const isRequestedByEmail = normalizedEmail && reqBy === normalizedEmail;
+              const isRequestedByDisplayName = user.displayName && reqBy === user.displayName.toLowerCase().trim();
+              
+              return isCreatorEmail || isCreatorUid || isRequestedByEmail || isRequestedByDisplayName;
+            });
+          }
+          
+          if (visibleList.length > 0) {
+            setReports(visibleList);
             setSelectedReportId((prev) => {
-              if (prev && fetchedList.some(r => r.id === prev)) return prev;
-              return fetchedList[0].id;
+              if (prev && visibleList.some(r => r.id === prev)) return prev;
+              return visibleList[0].id;
             });
           } else {
-            // Seed a default template report if absolute clean slate database
-            setReports([TEMPLATE_REPORT]);
-            setSelectedReportId(TEMPLATE_REPORT.id);
-            // Optionally auto-save seed in background
-            setDoc(doc(db, "reports", TEMPLATE_REPORT.id), TEMPLATE_REPORT).catch(console.error);
+            // Seed a default template report specifically scoped for this user so they can start adding
+            const userSpecificTemplate = {
+              ...TEMPLATE_REPORT,
+              id: `report-template-${user.uid}`,
+              createdBy: normalizedEmail || user.uid,
+              title: "নতুন রোগী (শুরু করুন)"
+            };
+            setReports([userSpecificTemplate]);
+            setSelectedReportId(userSpecificTemplate.id);
           }
           setIsLoadingReports(false);
         }, (err) => {
@@ -632,6 +651,13 @@ export default function App() {
       };
     }
 
+    if (!finalUpdated.createdBy && currentUser) {
+      finalUpdated = {
+        ...finalUpdated,
+        createdBy: currentUser.email || currentUser.uid
+      };
+    }
+
     // Snappy UI optimization (update local state immediately)
     const updatedList = reports.map((r) => (r.id === finalUpdated.id ? finalUpdated : r));
     setReports(updatedList);
@@ -786,7 +812,8 @@ export default function App() {
       id: freshId,
       title: `${newLabel}`,
       createdAt: new Date().toISOString(),
-      approvalStatus: "Draft"
+      approvalStatus: "Draft",
+      createdBy: currentUser ? (currentUser.email || currentUser.uid) : "Guest"
     };
 
     const expandedList = [newReport, ...reports];
@@ -819,7 +846,8 @@ export default function App() {
         regNo: `${report.patient.regNo}-C`,
       },
       title: `${report.patient.fullName} (COPY)`,
-      approvalStatus: "Draft" // Force Draft for cloned items
+      approvalStatus: "Draft", // Force Draft for cloned items
+      createdBy: currentUser ? (currentUser.email || currentUser.uid) : "Guest"
     };
 
     const expandedList = [cloned, ...reports];

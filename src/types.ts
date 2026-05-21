@@ -82,4 +82,5 @@ export interface MedicalReport {
   approvalStatus?: "Draft" | "Pending Approval" | "Approved";
   requestedBy?: string;
   requestedAt?: string;
+  createdBy?: string;
 }
