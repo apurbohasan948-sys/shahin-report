@@ -1271,35 +1271,10 @@ export default function ReportEditorControl({
                     গুগল স্প্রেডশিটের পরিবর্তে এখন সম্পূর্ণ ডাটাবেজ রিয়েল-টাইম ফায়ারবেস ক্লাউড স্টোরেজের সাথে যুক্ত। এটি চ্যাট, লাইভ এডিট বা ডাটা ইন্টিগ্রেশন সরাসরি পরিচালনা করে।
                   </p>
                   
-                  <div className="bg-emerald-950/40 border border-emerald-900/30 p-2.5 rounded-xl space-y-2">
-                    <div className="flex justify-between items-center text-[10px] text-emerald-300 font-bold border-b border-emerald-900/20 pb-1.5">
-                      <span>⚡ ফায়ারবেস ইন্টিগ্রেশন ইনফো:</span>
-                      <span className="px-1.5 py-0.5 bg-emerald-900/40 text-emerald-300 rounded text-[8px] font-mono">CONNECTED</span>
-                    </div>
-                    <ul className="text-[9.5px] text-slate-300 space-y-1.5 font-sans">
-                      <li className="flex justify-between">
-                        <span className="text-slate-400">Project ID:</span>
-                        <span className="font-mono text-[9px] text-slate-200">chithi-app-2025</span>
-                      </li>
-                      <li className="flex justify-between">
-                        <span className="text-slate-400">Database Service:</span>
-                        <span className="font-mono text-[9px] text-slate-200">Cloud Firestore (Default)</span>
-                      </li>
-                      <li className="flex justify-between">
-                        <span className="text-slate-400">Total Synchronized:</span>
-                        <span className="font-mono text-[9px] text-emerald-400 font-semibold">{reportsList.length} Records</span>
-                      </li>
-                      <li className="flex justify-between">
-                        <span className="text-slate-400">Active Admin Session:</span>
-                        <span className="font-mono text-[9px] text-slate-200">{currentUser?.email || "Guest"}</span>
-                      </li>
-                    </ul>
-                  </div>
-
-                  <div className="bg-indigo-950/20 border border-indigo-900/30 p-2.5 rounded-xl space-y-1">
-                    <span className="text-[10px] text-indigo-300 font-bold block">💡 নতুন জিমেইল এডমিন যুক্ত করার নিয়ম:</span>
-                    <p className="text-[9px] text-slate-305 leading-relaxed">
-                      সহকর্মী বা অন্য কোনো ডক্টরকে এডমিন বানাতে পাশে থাকা <strong>"Admins"</strong> ট্যাবে যান এবং তার সঠিক জিমেইল অ্যাড্রেসটি লিখে <strong>"যুক্ত করুন"</strong> বাটনে ক্লিক করুন। এরপর সেই জিমেইলে সাইন-ইন করলে তিনিও ড্যাশবোর্ডে পূর্ণ এক্সেস পাবেন!
+                  <div className="bg-indigo-50 border border-indigo-100 p-2.5 rounded-xl space-y-1">
+                    <span className="text-[10px] text-indigo-900 font-bold block">💡 নতুন এডমিন যুক্ত করার নিয়ম:</span>
+                    <p className="text-[9px] text-indigo-800 leading-relaxed">
+                      সহকর্মী বা অন্য কোনো ডক্টরকে এডমিন বানাতে বাম পাশের সাইডবারে থাকা <strong>"নতুন অ্যাডমিন নিবন্ধন ফরম (Add Admin)"</strong> ফরমটি ব্যবহার করুন। সেখানে নাম, মোবাইল বা জিমেইল এবং পাসওয়ার্ড দিয়ে সুরক্ষিতভাবে নতুন অ্যাডমিন অ্যাকাউন্ট তৈরি করতে পারবেন।
                     </p>
                   </div>
                 </div>
@@ -1316,42 +1291,15 @@ export default function ReportEditorControl({
             <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl">
               <span className="font-bold text-indigo-900 text-xs block mb-1">🛡️ Admin Access Management</span>
               <p className="text-indigo-800 text-[10.5px] leading-normal font-medium">
-                অন্যান্য ডক্টর বা এডমিনদের জিমেইল অ্যাড্রেস এখানে যুক্ত করুন। যুক্ত করার পর তারা গুগল লগইন সম্পন্ন করে AMC ড্যাশবোর্ডের পূর্ণ এডিট এবং এপ্রুভাল পারমিশন পেয়ে যাবেন।
+                বাম পাশের প্যানেল থেকে নাম, পাসওয়ার্ড এবং মোবাইল নাম্বার/জিমেইল দিয়ে নতুন অ্যাডমিন অ্যাকাউন্ট তৈরি করতে পারবেন। তৈরি করার পর তারা সরাসরি তাদের ক্রেডেনশিয়াল দিয়ে পোর্টালে প্রবেশ করতে পারবেন এবং পূর্ণ অ্যাডমিন এ্যাক্সেস পেয়ে যাবেন।
               </p>
             </div>
 
-            <div className="space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50/50">
-              <span className="font-bold text-gray-800 text-[11px] block uppercase tracking-tight">নতুন এডমিন যুক্ত করুন:</span>
-              <div className="flex gap-2">
-                <input
-                  id="new-admin-email-input"
-                  type="email"
-                  placeholder="যেমন: doctor@gmail.com"
-                  className="flex-1 text-[11px] py-1.5 px-3 bg-white border border-slate-300 rounded-lg text-slate-950 font-mono tracking-tight focus:outline-none focus:border-indigo-500"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      const input = document.getElementById("new-admin-email-input") as HTMLInputElement;
-                      if (input && onAddAdmin) {
-                        onAddAdmin(input.value);
-                        input.value = "";
-                      }
-                    }
-                  }}
-                />
-                <button
-                  onClick={() => {
-                    const input = document.getElementById("new-admin-email-input") as HTMLInputElement;
-                    if (input && onAddAdmin) {
-                      onAddAdmin(input.value);
-                      input.value = "";
-                    }
-                  }}
-                  className="px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10.5px] rounded-lg transition-colors cursor-pointer"
-                >
-                  যোগ করুন
-                </button>
-              </div>
-              <p className="text-[9.5px] text-gray-400">অবশ্যই বৈধ গুগল জিমেইল অ্যাড্রেস প্রদান করতে হবে।</p>
+            <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl text-center space-y-2">
+              <span className="text-[12px] text-gray-800 font-bold block">👉 বাম পাশের প্যানেলটি ব্যবহার করুন</span>
+              <p className="text-[11px] text-gray-500 leading-normal max-w-md mx-auto">
+                ডাটাবেজে নতুন ডিরেক্ট এডমিন একাউন্ট যুক্ত করতে দয়া করে বাম পাশের সাইডবারে থাকা <strong>"নতুন অ্যাডমিন নিবন্ধন ফরম"</strong> ব্যবহার করুন। সেখানে যেকোনো মোবাইল নাম্বার ও পাসওয়ার্ড দিয়ে খুব সহজেই রিয়েন-টাইম সিঙ্ক সুবিধা সহ আইডি তৈরি করা যায়।
+              </p>
             </div>
 
             <div className="space-y-2">

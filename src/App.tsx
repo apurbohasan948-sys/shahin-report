@@ -29,6 +29,8 @@ import SealAndSignatures from "./components/SealAndSignatures";
 import ReportEditorControl from "./components/ReportEditorControl";
 
 // Firebase imports
+import { initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
 import { 
   auth, 
   db, 
@@ -38,7 +40,8 @@ import {
   createUserWithEmailAndPassword,
   signInAnonymously,
   signOut,
-  updateProfile
+  updateProfile,
+  firebaseConfig
 } from "./firebase";
 import { 
   onAuthStateChanged, 
@@ -93,6 +96,12 @@ export default function App() {
   const [loginErrorMessage, setLoginErrorMessage] = useState<string | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState<boolean>(false);
 
+  // Authorized Admin-only sub-admin registration form states
+  const [adminRegName, setAdminRegName] = useState<string>("");
+  const [adminRegPhoneOrEmail, setAdminRegPhoneOrEmail] = useState<string>("");
+  const [adminRegPassword, setAdminRegPassword] = useState<string>("");
+  const [isAdminRegistering, setIsAdminRegistering] = useState<boolean>(false);
+
   const [reports, setReports] = useState<MedicalReport[]>([]);
   const [selectedReportId, setSelectedReportId] = useState<string>("");
   const [isInlineEdit, setIsInlineEdit] = useState<boolean>(false);
@@ -119,7 +128,8 @@ export default function App() {
   useEffect(() => {
     // Detect Agent view via URL query parameter on mounting
     const params = new URLSearchParams(window.location.search);
-    if (params.get("role") === "agent") {
+    const isAgentParam = params.get("role") === "agent";
+    if (isAgentParam) {
       setIsAgentRole(true);
       setIsUrlLockedAgent(true);
     }
@@ -172,7 +182,7 @@ export default function App() {
         }
 
         setIsAdmin(isUserAdmin);
-        setIsAgentRole(!isUserAdmin); // Standard registered users act as Agents; admins default to admin control panel
+        setIsAgentRole(isAgentParam || !isUserAdmin); // Standard registered users and forced agent parameters act as Agents
 
         // 3. Set up Real-time Reports Listener from Firebase Central DB
         const reportsQuery = query(collection(db, "reports"), orderBy("createdAt", "desc"));
@@ -223,12 +233,29 @@ export default function App() {
         };
       } else {
         // Logged-out state
-        setCurrentUser(null);
-        setIsAdmin(false);
-        setIsAgentRole(false);
-        setReports([]);
-        setIsLoadingReports(false);
-        setIsLoadingAuth(false);
+        const currentParams = new URLSearchParams(window.location.search);
+        const isUrlAgent = currentParams.get("role") === "agent";
+        if (isUrlAgent) {
+          try {
+            await signInAnonymously(auth);
+            console.log("Auto-logged in as Anonymous Agent");
+          } catch (err) {
+            console.error("Auto anonymous login failure:", err);
+            setCurrentUser(null);
+            setIsAdmin(false);
+            setIsAgentRole(true);
+            setReports([]);
+            setIsLoadingReports(false);
+            setIsLoadingAuth(false);
+          }
+        } else {
+          setCurrentUser(null);
+          setIsAdmin(false);
+          setIsAgentRole(false);
+          setReports([]);
+          setIsLoadingReports(false);
+          setIsLoadingAuth(false);
+        }
       }
     });
 
@@ -384,6 +411,85 @@ export default function App() {
       console.error("Firestore Add Admin Error:", err);
       // Catch rules errors gracefully
       handleFirestoreError(err, OperationType.WRITE, `admins/${emailToAdd}`);
+    }
+  };
+
+  // A secure sub-admin registration function that uses a temporary Firebase Application Context
+  // to avoid logging out the current active Admin session.
+  const handleRegisterAdminSecurely = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminRegName.trim() || !adminRegPhoneOrEmail.trim() || !adminRegPassword.trim()) {
+      triggerAlert("দয়া করে নাম, নাম্বার/ইমেইল এবং পাসওয়ার্ড সঠিক ভাবে পূরণ করুন।", "info");
+      return;
+    }
+
+    if (adminRegPassword.length < 6) {
+      triggerAlert("পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।", "info");
+      return;
+    }
+
+    const targetEmail = normalizeToEmail(adminRegPhoneOrEmail);
+    if (!targetEmail) {
+      triggerAlert("অ্যাডমিন নাম্বার বা ইমেল অ্যাড্রেসটি ভুল বা খালি।", "info");
+      return;
+    }
+
+    setIsAdminRegistering(true);
+    let tempAppInstance: any = null;
+    try {
+      // 1. Create a completely isolated Firebase Auth instance using a dynamic second App name
+      const tempAppName = `TempRegApp_${Date.now()}`;
+      tempAppInstance = initializeApp(firebaseConfig, tempAppName);
+      const tempAuth = getAuth(tempAppInstance);
+
+      // 2. Register the user in Firebase Auth
+      triggerAlert("ফায়ারবেস অথেন্টিকেশন সার্ভিসে অ্যাকাউন্ট তৈরি হচ্ছে...", "info");
+      const userCredential = await createUserWithEmailAndPassword(tempAuth, targetEmail, adminRegPassword);
+      
+      // Update display name for the newly created user in the temporary session
+      if (userCredential.user) {
+        await updateProfile(userCredential.user, {
+          displayName: adminRegName.trim()
+        });
+      }
+
+      // 3. Log out/Clean up the temporary session immediately
+      await signOut(tempAuth);
+
+      // 4. Record this user in our Firestore "admins" list using our MAIN authorised active session db instance
+      triggerAlert("ডাটাবেজ অ্যাডমিন তালিকায় নিবন্ধন রেকর্ড যুক্ত করা হচ্ছে...", "info");
+      await setDoc(doc(db, "admins", targetEmail), {
+        email: targetEmail,
+        addedAt: new Date().toISOString(),
+        addedBy: currentUser?.email || "Master Admin"
+      });
+
+      // Clear the input fields
+      setAdminRegName("");
+      setAdminRegPhoneOrEmail("");
+      setAdminRegPassword("");
+
+      triggerAlert(`অ্যাডমিন '${adminRegName}' (${targetEmail}) সফলভাবে নিবন্ধিত হয়েছে!`, "success");
+    } catch (err: any) {
+      console.error("Secure Admin registration failed:", err);
+      let errorMsg = err.message || "";
+      if (err.code === "auth/email-already-in-use" || err.code === "auth/credential-already-in-use") {
+        errorMsg = "এই নাম্বার বা ইমেইলটি ইতিপূর্বে একটি অ্যাকাউন্টে ব্যবহার করা হয়েছে।";
+      } else if (err.code === "auth/invalid-email") {
+        errorMsg = "অনুগ্রহ করে একটি সঠিক ইমেইল অথবা নাম্বার ইনপুট দিন।";
+      }
+      triggerAlert(`অ্যাডমিন এড হতে পারেনি: ${errorMsg}`, "info");
+    } finally {
+      setIsAdminRegistering(false);
+      // Clean up temporary app instance from memory if existing
+      if (tempAppInstance) {
+        try {
+          const { deleteApp } = await import("firebase/app");
+          await deleteApp(tempAppInstance);
+        } catch (errTemp) {
+          console.error("Temporary app cleanup error:", errTemp);
+        }
+      }
     }
   };
 
@@ -839,19 +945,9 @@ export default function App() {
             </p>
           </div>
 
-          <div className="flex bg-slate-100 p-1 rounded-xl">
-            <button
-              onClick={() => { setAuthMode("login"); setLoginErrorMessage(null); }}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${authMode === "login" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"}`}
-            >
-              লগইন (Sign In)
-            </button>
-            <button
-              onClick={() => { setAuthMode("register"); setLoginErrorMessage(null); }}
-              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${authMode === "register" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"}`}
-            >
-              নিবন্ধন (Register)
-            </button>
+          <div className="text-xs text-indigo-850 bg-indigo-50/50 border border-indigo-100/60 p-3 rounded-2xl text-center font-bold flex items-center justify-center gap-2">
+            <Lock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+            <span>অনুমোদিত এডমিন এবং স্টাফদের জন্য নিরাপদ প্রবেশদ্বার</span>
           </div>
 
           {loginErrorMessage && (
@@ -861,21 +957,7 @@ export default function App() {
             </div>
           )}
 
-          <form onSubmit={authMode === "login" ? handlePhonePasswordLogin : handlePhonePasswordRegister} className="space-y-3.5 text-left">
-            {authMode === "register" && (
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-600">আপনার পূর্ণ নাম (Full Name)</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="যেমন: ডাঃ রফিকুল ইসলাম"
-                  value={loginName}
-                  onChange={(e) => setLoginName(e.target.value)}
-                  className="w-full text-xs py-2.5 px-3.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all placeholder-gray-400 font-semibold"
-                />
-              </div>
-            )}
-
+          <form onSubmit={handlePhonePasswordLogin} className="space-y-3.5 text-left">
             <div className="space-y-1.5">
               <label className="text-[11px] font-bold text-slate-600">মোবাইল নাম্বার অথবা জিমেইল (Number / Email)</label>
               <input
@@ -907,10 +989,8 @@ export default function App() {
             >
               {isAuthenticating ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : authMode === "login" ? (
-                "আইডি দিয়ে প্রবেশ করুন"
               ) : (
-                "নতুন অ্যাকাউন্ট তৈরি করুন"
+                "আইডি দিয়ে প্রবেশ করুন"
               )}
             </button>
           </form>
@@ -1124,33 +1204,60 @@ export default function App() {
                 </span>
               </div>
 
-              {/* Sub-Admin email adder tool */}
-              <div className="space-y-2">
-                <label className="block text-[10.5px] font-extrabold text-slate-700 uppercase tracking-tight flex items-center gap-1.5">
-                  <Users className="w-3.5 h-3.5 text-slate-500" />
-                  নতুন সহকর্মী অ্যাডমিন যুক্ত করুন (Gmail):
+              {/* Sub-Admin Registration Form */}
+              <form onSubmit={handleRegisterAdminSecurely} className="space-y-2 border-b border-slate-100 pb-3">
+                <label className="block text-[11px] font-extrabold text-indigo-900 uppercase tracking-tight flex items-center gap-1.5">
+                  <UserCheck className="w-3.5 h-3.5 text-indigo-650" />
+                  নতুন অ্যাডমিন নিবন্ধন ফরম (Add Admin):
                 </label>
                 
-                <div className="flex gap-2">
+                <div className="space-y-1.5">
                   <input
-                    type="email"
-                    value={newAdminEmail}
-                    onChange={(e) => setNewAdminEmail(e.target.value)}
-                    placeholder="যেমন: shahinsir@gmail.com"
-                    className="flex-1 text-[11.5px] py-2 px-3 bg-slate-50 border border-slate-300 rounded-lg text-slate-950 font-medium tracking-tight focus:outline-none focus:border-slate-800 placeholder-slate-400"
+                    type="text"
+                    required
+                    placeholder="নাম (যেমন: ডাঃ রফিকুল ইসলাম)"
+                    value={adminRegName}
+                    onChange={(e) => setAdminRegName(e.target.value)}
+                    className="w-full text-[11px] py-1.5 px-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-950 font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-400"
                   />
-                  <button
-                    onClick={handleAddAdmin}
-                    className="flex items-center gap-1 px-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-lg cursor-pointer transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    যুক্ত করুন
-                  </button>
+                  
+                  <input
+                    type="text"
+                    required
+                    placeholder="মোবাইল নাম্বার অথবা জিমেইল এড্রেস"
+                    value={adminRegPhoneOrEmail}
+                    onChange={(e) => setAdminRegPhoneOrEmail(e.target.value)}
+                    className="w-full text-[11px] py-1.5 px-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-950 font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-400"
+                  />
+
+                  <input
+                    type="password"
+                    required
+                    placeholder="পাসওয়ার্ড (কমপক্ষে ৬ অক্ষরের)"
+                    value={adminRegPassword}
+                    onChange={(e) => setAdminRegPassword(e.target.value)}
+                    className="w-full text-[11px] py-1.5 px-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-950 font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-400"
+                  />
                 </div>
-                <span className="text-[9.5px] text-gray-400 font-medium block leading-snug">
-                  * এখানে যুক্ত করা প্রতিটি গুগল জিমেইল অ্যাকাউন্ট সরাসরি এডমিন প্যানেলে এ্যাক্সেস পেয়ে যাবেন।
+
+                <button
+                  type="submit"
+                  disabled={isAdminRegistering}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[11px] rounded-lg cursor-pointer transition-colors shadow-xs"
+                >
+                  {isAdminRegistering ? (
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <Plus className="w-3.5 h-3.5" />
+                      নতুন অ্যাডমিন নিবন্ধন করুন
+                    </>
+                  )}
+                </button>
+                <span className="text-[9px] text-gray-400 font-semibold block leading-tight">
+                  * নতুন অ্যাডমিনদের তালিকা ও তথ্য ফায়ারবেস ক্লাউডে সরাসরি অথেন্টিকেট করা হবে।
                 </span>
-              </div>
+              </form>
 
               {/* Connected Administrators Sub list */}
               <div className="border border-slate-100 rounded-xl overflow-hidden bg-slate-50/50">
